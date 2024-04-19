@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <androidx.camera.view.PreviewView
+        android:id="@+id/previewView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="0"
+        app:layout_constraintBottom_toTopOf="@id/startCamera"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"/>
+    <Button
+        android:id="@+id/startCamera"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Start camera"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/det"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginEnd="4dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginBottom="4dp"/>
+
+    <Button
+        android:id="@+id/det"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Detect"
+        app:layout_constraintStart_toEndOf="@id/startCamera"
+        app:layout_constraintEnd_toStartOf="@id/speak"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="4dp"/>
+
+    <Button
+        android:id="@+id/speak"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Describe"
+        app:layout_constraintStart_toEndOf="@id/det"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="4dp"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>
