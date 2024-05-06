@@ -12,7 +12,6 @@ import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.camera.view.PreviewView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.lifecycle.LifecycleOwner;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
@@ -34,10 +33,12 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+
 import org.opencv.android.OpenCVLoader;
 
 
@@ -46,13 +47,12 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     private PreviewView pview;
     private boolean analysis_on;
     private ListenableFuture<ProcessCameraProvider> provider;
-    private Yolov5TFLiteDetector yolov5TFLiteDetector;
-    private MiDASDepthEstimator depthEstimator;
+    private Yolov5Detector yolov5Detector;
+    private MiDaSDepthEstimator depthEstimator;
     Paint boxPaint = new Paint();
     Paint textPain = new Paint();
     private static final int PERMISSION_REQUEST_CODE = 200;
     private ArrayList<Recognition> recognitionsInOrder;
-
     private TextToSpeech textToSpeech;
 
     static{
@@ -61,9 +61,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         else
             Log.d("SUCCESS", "openCV loaded");
     }
-
-
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -81,9 +78,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         pview = findViewById(R.id.previewView);
         this.analysis_on = false;
 
-        yolov5TFLiteDetector = new Yolov5TFLiteDetector();
-        yolov5TFLiteDetector.setModelFile("yolov5s-fp16.tflite");
-        yolov5TFLiteDetector.initialModel(this);
+        yolov5Detector = new Yolov5Detector();
+        yolov5Detector.setModelFile("yolov5s-fp16.tflite");
+        yolov5Detector.initialModel(this);
 
         boxPaint.setStrokeWidth(5);
         boxPaint.setStyle(Paint.Style.STROKE);
@@ -94,18 +91,17 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         textPain.setStyle(Paint.Style.FILL);
 
         try {
-            depthEstimator = new MiDASDepthEstimator(this, "midas.tflite");
+            depthEstimator = new MiDaSDepthEstimator(this, "midas.tflite");
         } catch (IOException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
 
         textToSpeech = new TextToSpeech(getApplicationContext(), status -> {
             if (status != TextToSpeech.ERROR) {
-                textToSpeech.setLanguage(Locale.ENGLISH); // Imposta la lingua desiderata
+                textToSpeech.setLanguage(Locale.ENGLISH);
             }
         });
     }
-
     @Override
     public void onClick(View v) {
         if(v.getId() == R.id.startCamera){
@@ -133,85 +129,63 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 textToSpeech.speak(recognition.getLabelName(), TextToSpeech.QUEUE_ADD, null, null);
             }
         }
-
     }
-
     private boolean checkPermission() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
     }
-
     private void requestPermission() {
-
         ActivityCompat.requestPermissions(this,
                 new String[]{Manifest.permission.CAMERA},
                 PERMISSION_REQUEST_CODE);
     }
-
     private void startCamera(ProcessCameraProvider cameraProvider) {
         cameraProvider.unbindAll();
         CameraSelector camSelector = new CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK).build();
-
         Preview preview = new Preview.Builder().build();
         preview.setSurfaceProvider(pview.getSurfaceProvider());
-
         ImageCapture imageCapt = new ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build();
         ImageAnalysis imageAn = new ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build();
         imageAn.setAnalyzer(getExecutor(), this);
-
-        cameraProvider.bindToLifecycle((LifecycleOwner)this, camSelector, preview, imageCapt, imageAn);
+        cameraProvider.bindToLifecycle(this, camSelector, preview, imageCapt, imageAn);
     }
-
     private Executor getExecutor() {
         return ContextCompat.getMainExecutor(this);
     }
-
-    static class RecognitionDepthComparator implements Comparator<Recognition> {
-        @Override
-        public int compare(Recognition r1, Recognition r2) {
-            return Float.compare(r2.getDepth(), r1.getDepth());
-        }
-    }
-
     private float[][] resizeDepthMap(float[][] depthMap, int targetHeight, int targetWidth) {
         int depthMapHeight = depthMap.length;
         int depthMapWidth = depthMap[0].length;
 
         float[][] resizedDepthMap = new float[targetHeight][targetWidth];
 
-        // Calcola i fattori di scala per l'altezza e la larghezza
-        float scaleY = (float) targetHeight / depthMapHeight;
-        float scaleX = (float) targetWidth / depthMapWidth;
+        float x_ratio = (float) (depthMapWidth - 1) / (targetWidth - 1);
+        float y_ratio = (float) (depthMapHeight - 1) / (targetHeight - 1);
 
-        // Ridimensiona la depthMap utilizzando l'interpolazione bilineare
-        for (int y = 0; y < targetHeight; y++) {
-            for (int x = 0; x < targetWidth; x++) {
-                float sourceY = y / scaleY;
-                float sourceX = x / scaleX;
-                int sourceYFloor = (int) Math.floor(sourceY);
-                int sourceYCeil = Math.min(depthMapHeight - 1, (int) Math.ceil(sourceY));
-                int sourceXFloor = (int) Math.floor(sourceX);
-                int sourceXCeil = Math.min(depthMapWidth - 1, (int) Math.ceil(sourceX));
-
-                float value1 = depthMap[sourceYFloor][sourceXFloor];
-                float value2 = depthMap[sourceYFloor][sourceXCeil];
-                float value3 = depthMap[sourceYCeil][sourceXFloor];
-                float value4 = depthMap[sourceYCeil][sourceXCeil];
-
-                float value = bilinearInterpolation(sourceX, sourceY, value1, value2, value3, value4);
-
-                resizedDepthMap[y][x] = value;
+        for (int y = 0; y < targetHeight - 1; y++) {
+            for (int x = 0; x < targetWidth - 1; x++) {
+                //estrazione coordinate dei quattro punti
+                int x_l = (int) Math.floor(x_ratio * x);
+                int x_h = (int) Math.ceil(x_ratio * x);
+                int y_l = (int) Math.floor(y_ratio * y);
+                int y_h = (int) Math.ceil(y_ratio * y);
+                //estrazione dei valori
+                float A = depthMap[y_l][x_l];
+                float B = depthMap[y_l][x_h];
+                float C = depthMap[y_h][x_l];
+                float D = depthMap[y_h][x_h];
+                //calcolo dei pesi
+                float xWeight = (x_ratio * x) - x_l;
+                float yWeight = (y_ratio * y) - y_l;
+                //interpolazione bilineare
+                resizedDepthMap[y][x] = bilinearInterpolation(xWeight, yWeight, A, B, C, D);
             }
         }
-
         return resizedDepthMap;
     }
-
-    private float bilinearInterpolation(float x, float y, float q11, float q12, float q21, float q22) {
-        float topInterpolation = (q12 - q11) * (x - (int) x) + q11;
-        float bottomInterpolation = (q22 - q21) * (x - (int) x) + q21;
-        return (q21 - q11) * (y - (int) y) * (x - (int) x) + topInterpolation * (1 - (y - (int) y)) + bottomInterpolation * (y - (int) y);
+    private float bilinearInterpolation(float xWeight, float yWeight, float A, float B, float C, float D) {
+        float topInterpolation = (1 - xWeight) * A + xWeight * B;
+        float bottomInterpolation = (1 - xWeight) * C + xWeight * D;
+        return (1 - yWeight) * topInterpolation + yWeight * bottomInterpolation;
     }
-
     @Override
     public void analyze(@NonNull ImageProxy image) {
         Bitmap conv = pview.getBitmap();
@@ -219,15 +193,19 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         {
             float[][] depthMap = depthEstimator.estimateDepth(conv);
             assert conv != null;
+            long startTime = System.currentTimeMillis();
             float[][] resizedDepthMap = resizeDepthMap(depthMap, Objects.requireNonNull(conv).getHeight(), conv.getWidth());
-            ArrayList<Recognition> recognitions =  yolov5TFLiteDetector.detect(conv);
+            long endTime = System.currentTimeMillis();
+            System.out.println("Ridimensionamento eseguito in " + (endTime - startTime) + " millisecondi");
+            ArrayList<Recognition> recognitions =  yolov5Detector.detect(conv);
+
             Bitmap mutableBitmap = conv.copy(Bitmap.Config.ARGB_8888, true);
             Canvas canvas = new Canvas(mutableBitmap);
 
             recognitionsInOrder = new ArrayList<>();
 
             for(Recognition recognition: recognitions){
-                if(recognition.getConfidence() > 0.7){
+                if(recognition.getConfidence() > 0.5){
                     RectF location = recognition.getLocation();
                     float centerX = location.centerX();
                     float centerY = location.centerY();
@@ -236,8 +214,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     recognitionsInOrder.add(recognition);
                 }
             }
-
-            recognitionsInOrder.sort(new RecognitionDepthComparator());
+            //ordina gli elementi dal più vicino al più lontano dalla fotocamera
+            Comparator<Recognition> comparator = Comparator.comparing(Recognition::getDepth).reversed();
+            Collections.sort(recognitionsInOrder, comparator);
 
             for(int i = 0; i < recognitionsInOrder.size(); i++){
                 Recognition recognition = recognitionsInOrder.get(i);
@@ -254,11 +233,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             pview.setForeground(drawable);
         }
         image.close();
-
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
