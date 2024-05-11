@@ -38,6 +38,10 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import org.opencv.android.OpenCVLoader;
 
@@ -160,27 +164,81 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         float x_ratio = (float) (depthMapWidth - 1) / (targetWidth - 1);
         float y_ratio = (float) (depthMapHeight - 1) / (targetHeight - 1);
 
-        for (int y = 0; y < targetHeight - 1; y++) {
-            for (int x = 0; x < targetWidth - 1; x++) {
-                //estrazione coordinate dei quattro punti
+        ExecutorService executor = Executors.newFixedThreadPool(4);
+        //Calcola il numero di righe che ogni thread deve processare
+        int rowsPerThread = targetHeight / 4;
+        int remainingRows = targetHeight % 4;
+        for (int i = 0; i < 4; i++) {
+            int additionalRow = (i < remainingRows) ? 1 : 0;
+            final int startRow = i * rowsPerThread + Math.min(i, remainingRows);
+            final int endRow = startRow + rowsPerThread + additionalRow;
+            System.out.println("Thread " + i + ": startRow=" + startRow + ",endRow=" + endRow);
+            executor.submit(() -> {
+                resizeDepthMapSection(depthMap, resizedDepthMap, x_ratio, y_ratio, startRow, endRow, targetWidth);
+            });
+        }
+        //Attesa della terminazione di tutti i threads
+        executor.shutdown();
+        try {
+            executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        return resizedDepthMap;
+    }
+
+    private void resizeDepthMapSection(float[][] depthMap, float[][] resizedDepthMap, float x_ratio, float y_ratio, int startRow, int endRow, int targetWidth) {
+        for (int y = startRow; y < endRow; y++) {
+            for (int x = 0; x < targetWidth; x++) {
+                // Estrazione delle coordinate dei quattro punti
                 int x_l = (int) Math.floor(x_ratio * x);
                 int x_h = (int) Math.ceil(x_ratio * x);
                 int y_l = (int) Math.floor(y_ratio * y);
                 int y_h = (int) Math.ceil(y_ratio * y);
-                //estrazione dei valori
+                // Estrazione dei valori
                 float A = depthMap[y_l][x_l];
                 float B = depthMap[y_l][x_h];
                 float C = depthMap[y_h][x_l];
                 float D = depthMap[y_h][x_h];
-                //calcolo dei pesi
+                // Calcolo dei pesi
                 float xWeight = (x_ratio * x) - x_l;
                 float yWeight = (y_ratio * y) - y_l;
-                //interpolazione bilineare
+                // Interpolazione bilineare
                 resizedDepthMap[y][x] = bilinearInterpolation(xWeight, yWeight, A, B, C, D);
             }
         }
-        return resizedDepthMap;
     }
+//    private float[][] resizeDepthMap(float[][] depthMap, int targetHeight, int targetWidth) {
+//        int depthMapHeight = depthMap.length;
+//        int depthMapWidth = depthMap[0].length;
+//
+//        float[][] resizedDepthMap = new float[targetHeight][targetWidth];
+//
+//        float x_ratio = (float) (depthMapWidth - 1) / (targetWidth - 1);
+//        float y_ratio = (float) (depthMapHeight - 1) / (targetHeight - 1);
+//
+//        for (int y = 0; y < targetHeight - 1; y++) {
+//            for (int x = 0; x < targetWidth - 1; x++) {
+//                //estrazione coordinate dei quattro punti
+//                int x_l = (int) Math.floor(x_ratio * x);
+//                int x_h = (int) Math.ceil(x_ratio * x);
+//                int y_l = (int) Math.floor(y_ratio * y);
+//                int y_h = (int) Math.ceil(y_ratio * y);
+//                //estrazione dei valori
+//                float A = depthMap[y_l][x_l];
+//                float B = depthMap[y_l][x_h];
+//                float C = depthMap[y_h][x_l];
+//                float D = depthMap[y_h][x_h];
+//                //calcolo dei pesi
+//                float xWeight = (x_ratio * x) - x_l;
+//                float yWeight = (y_ratio * y) - y_l;
+//                //interpolazione bilineare
+//                resizedDepthMap[y][x] = bilinearInterpolation(xWeight, yWeight, A, B, C, D);
+//            }
+//        }
+//        return resizedDepthMap;
+//    }
     private float bilinearInterpolation(float xWeight, float yWeight, float A, float B, float C, float D) {
         float topInterpolation = (1 - xWeight) * A + xWeight * B;
         float bottomInterpolation = (1 - xWeight) * C + xWeight * D;
@@ -199,8 +257,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             System.out.println("Ridimensionamento eseguito in " + (endTime - startTime) + " millisecondi");
             ArrayList<Recognition> recognitions =  yolov5Detector.detect(conv);
 
-            Bitmap mutableBitmap = conv.copy(Bitmap.Config.ARGB_8888, true);
-            Canvas canvas = new Canvas(mutableBitmap);
+            Canvas canvas = new Canvas(conv);
 
             recognitionsInOrder = new ArrayList<>();
 
@@ -225,7 +282,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 canvas.drawText(recognition.getLabelName() + ":" + i, location.left, location.top, textPain);
             }
 
-            Drawable drawable = new BitmapDrawable(getResources(), mutableBitmap);
+            Drawable drawable = new BitmapDrawable(getResources(), conv);
             this.pview.setForeground(drawable);
         }else {
             // Se analysis_on è false, visualizza solo l'immagine senza rilevamenti

@@ -24,11 +24,11 @@ public class MiDaSDepthEstimator {
     private static final int INPUT_WIDTH = 256;
     private static final int INPUT_HEIGHT = 256;
     private final Interpreter tflite;
+    Interpreter.Options options = new Interpreter.Options();
     private final float[][] outputArray;
 
     public MiDaSDepthEstimator(Context context, String modelPath) throws IOException {
         ByteBuffer modelBuffer = FileUtil.loadMappedFile(context, modelPath);
-        Interpreter.Options options = new Interpreter.Options();
         tflite = new Interpreter(modelBuffer, options);
         outputArray = new float[INPUT_HEIGHT][INPUT_WIDTH];
     }
