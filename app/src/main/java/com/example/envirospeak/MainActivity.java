@@ -41,7 +41,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.IntStream;
 
 import org.opencv.android.OpenCVLoader;
 
@@ -83,7 +82,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         this.analysis_on = false;
 
         yolov5Detector = new Yolov5Detector();
-        yolov5Detector.setModelFile("yolov5s-fp16.tflite");
+        yolov5Detector.setModelFile("yolov5s_dynamic_range.tflite");
         yolov5Detector.initialModel(this);
 
         boxPaint.setStrokeWidth(5);
@@ -95,7 +94,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         textPain.setStyle(Paint.Style.FILL);
 
         try {
-            depthEstimator = new MiDaSDepthEstimator(this, "midas.tflite");
+            depthEstimator = new MiDaSDepthEstimator(this, "midas_dynamic_range.tflite");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -255,7 +254,10 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             float[][] resizedDepthMap = resizeDepthMap(depthMap, Objects.requireNonNull(conv).getHeight(), conv.getWidth());
             long endTime = System.currentTimeMillis();
             System.out.println("Ridimensionamento eseguito in " + (endTime - startTime) + " millisecondi");
+            startTime = System.currentTimeMillis();
             ArrayList<Recognition> recognitions =  yolov5Detector.detect(conv);
+            endTime = System.currentTimeMillis();
+            System.out.println("Rilevamento eseguito in " + (endTime - startTime) + " millisecondi");
 
             Canvas canvas = new Canvas(conv);
 
